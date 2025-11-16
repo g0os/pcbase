@@ -1,0 +1,715 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>PCBase — Локальная База</title>
+<style>
+  :root{
+    --bg:#071025; --panel:#0b1220; --accent:#4f8cff; --muted:#98a0b3; --card: rgba(255,255,255,0.03);
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    font-family: Inter, system-ui, Arial;
+    background: linear-gradient(180deg,var(--bg), #03040a);
+    color:#e6eef8;
+    height:100vh;
+    display:flex;
+    overflow:hidden;
+  }
+
+  /* layout */
+  .sidebar{
+    width:260px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+    border-right:1px solid rgba(255,255,255,0.03);
+    padding:18px;
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+  }
+  .brand{ font-weight:700; font-size:18px; letter-spacing:0.6px; color:var(--accent) }
+  .menu{
+    display:flex; flex-direction:column; gap:6px;
+  }
+  .menu button{
+    background:transparent; border:0; color:var(--muted); padding:10px; text-align:left; border-radius:8px; cursor:pointer;
+  }
+  .menu button.active{ background: rgba(79,140,255,0.12); color: #eaf2ff; box-shadow:0 4px 14px rgba(79,140,255,0.06) }
+
+  .sidebar .mini-controls{ margin-top:auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .sidebar .mini-controls button{ padding:8px 10px; border-radius:8px; border:0; cursor:pointer; background:var(--card); color:var(--muted) }
+
+  .main{
+    flex:1; padding:18px; overflow:auto;
+    display:flex; gap:18px; align-items:flex-start;
+  }
+
+  .pane{ background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); border-radius:12px; padding:16px; box-shadow:0 10px 30px rgba(2,6,23,0.6); }
+  .left-pane{ width:360px; max-height:calc(100vh - 60px); overflow:auto; }
+  .right-pane{ flex:1; min-width:540px; max-height:calc(100vh - 60px); overflow:auto; display:flex; flex-direction:column; gap:12px; }
+
+  .header-row{ display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:8px }
+  .clock{
+    font-weight:700; font-size:18px; color:#fff;
+    background:rgba(255,255,255,0.02); padding:8px 10px; border-radius:8px;
+  }
+  .calendar-mini{ padding:10px; background:rgba(255,255,255,0.02); border-radius:8px; color:var(--muted); font-size:13px }
+
+  /* notes list */
+  .list-header{ display:flex; gap:8px; align-items:center; }
+  .search{ flex:1; padding:8px 10px; border-radius:10px; border:0; background:rgba(255,255,255,0.02); color:var(--muted) }
+  .btn{ padding:10px 12px; border-radius:10px; border:0; cursor:pointer; background:var(--accent); color:#fff; }
+  .item{ padding:10px; border-radius:8px; background:rgba(255,255,255,0.01); margin-top:8px; cursor:pointer; display:flex; justify-content:space-between; gap:8px; align-items:center; }
+  .item .title{ color:#eaf2ff; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:200px }
+  .item .meta{ color:var(--muted); font-size:12px }
+
+  /* editor */
+  .editor{
+    display:flex; flex-direction:column; gap:10px;
+  }
+  .editor .title-input{ font-size:20px; padding:8px 10px; border-radius:8px; border:0; background:rgba(255,255,255,0.02); color:#fff }
+  .editor textarea{ min-height:320px; resize:vertical; padding:12px; border-radius:8px; border:0; background:rgba(255,255,255,0.02); color:#eaf2ff; font-size:15px; line-height:1.5 }
+
+  .controls-row{ display:flex; gap:8px; align-items:center }
+  .muted{ color:var(--muted); font-size:13px }
+
+  /* table editor */
+  .tbl-controls{ display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+  table.sheet{ width:100%; border-collapse:collapse; background:transparent; }
+  table.sheet td, table.sheet th{ border:1px solid rgba(255,255,255,0.05); padding:8px; min-width:80px; }
+  table.sheet th{ background:rgba(255,255,255,0.02); font-weight:700; color:#fff }
+  .cell-input{ width:100%; border:0; background:transparent; color:inherit; outline:none }
+
+  /* generators */
+  .gen-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(220px,1fr)); gap:12px; }
+  .gen-card{ padding:12px; border-radius:8px; background:rgba(255,255,255,0.02) }
+  .big-out{ font-size:22px; font-weight:700; margin-top:8px; color:#fff }
+
+  footer.note{ color:var(--muted); font-size:12px; margin-top:8px }
+
+  @media (max-width:1100px){
+    .left-pane{ display:none }
+    .sidebar{ display:none }
+    .main{ padding:12px }
+  }
+</style>
+</head>
+<body>
+
+  <div class="sidebar">
+    <div class="brand">PCBase</div>
+
+    <div class="header-row">
+      <div class="clock" id="clock">--:--:--</div>
+    </div>
+
+    <div class="calendar-mini" id="miniCal"></div>
+
+    <div class="menu" role="navigation">
+      <button id="tab-notes" class="active" onclick="switchTab('notes')">📝 Заметки</button>
+      <button id="tab-tables" onclick="switchTab('tables')">📊 Таблицы</button>
+      <button id="tab-generators" onclick="switchTab('generators')">🎲 Генераторы</button>
+      <button id="tab-calendar" onclick="switchTab('calendar')">📅 Календарь</button>
+      <button id="tab-db" onclick="switchTab('db')">⚙️ База</button>
+    </div>
+
+    <div class="mini-controls">
+      <button onclick="exportDB()">Экспорт</button>
+      <button onclick="importDB()">Импорт</button>
+      <button onclick="clearAll()" title="Очистить всю локальную базу" style="background:rgba(255,40,40,0.08); color:#ffb3b3">Очистить</button>
+    </div>
+
+    <div style="margin-top:12px" class="muted small">Данные хранятся в браузере (IndexedDB). Экспортируй для резервной копии.</div>
+  </div>
+
+  <div class="main">
+    <div class="pane left-pane" id="left-pane">
+      <div id="notes-list">
+        <div class="list-header">
+          <input id="searchInput" class="search" placeholder="Поиск заметок..." oninput="renderNotesList()" />
+          <button class="btn" onclick="createNote()">+ Новая</button>
+        </div>
+        <div id="notesContainer" style="margin-top:12px"></div>
+      </div>
+
+      <div id="tables-list" style="display:none">
+        <div class="list-header">
+          <input id="searchTables" class="search" placeholder="Поиск таблиц..." oninput="renderTablesList()" />
+          <button class="btn" onclick="createTable()">+ Новая</button>
+        </div>
+        <div id="tablesContainer" style="margin-top:12px"></div>
+      </div>
+
+      <div id="generators-list" style="display:none">
+        <div class="list-header">
+          <input id="searchGen" class="search" placeholder="Поиск..." oninput="renderGeneratorsList()" />
+          <div style="width:42px"></div>
+        </div>
+        <div id="gensContainer" style="margin-top:12px"></div>
+      </div>
+
+      <div id="db-info" style="display:none">
+        <h3 class="small">Информация о базе</h3>
+        <div id="dbDetails" class="small muted">Загружаю...</div>
+      </div>
+
+    </div>
+
+    <div class="pane right-pane">
+
+      <div id="notes-editor" class="editor">
+        <div style="display:flex; justify-content:space-between; gap:12px; align-items:center">
+          <input id="noteTitle" class="title-input" placeholder="Заголовок заметки" />
+          <div class="controls-row">
+            <button onclick="saveNote()" class="btn">Сохранить</button>
+            <button onclick="deleteCurrentNote()" class="btn" style="background:rgba(255,40,40,0.08); color:#ffb3b3">Удалить</button>
+          </div>
+        </div>
+        <textarea id="noteBody" placeholder="Текст заметки..."></textarea>
+        <div class="muted">Ctrl/Cmd+S — сохранить. Автосохранение при переключении.</div>
+      </div>
+
+      <div id="tables-editor" style="display:none; flex-direction:column" >
+        <div style="display:flex; justify-content:space-between; gap:12px; align-items:center">
+          <input id="tableTitle" class="title-input" placeholder="Название таблицы" />
+          <div>
+            <div class="tbl-controls">
+              <button class="btn" onclick="addCol()">+Колонка</button>
+              <button class="btn" onclick="addRow()">+Строка</button>
+              <button class="btn" onclick="saveTable()">Сохранить</button>
+              <button class="btn" style="background:rgba(255,40,40,0.08); color:#ffb3b3" onclick="deleteCurrentTable()">Удалить</button>
+            </div>
+          </div>
+        </div>
+
+        <div style="overflow:auto; border-radius:6px; margin-top:8px">
+          <table class="sheet" id="sheetTable"></table>
+        </div>
+        <div class="muted">Кликаешь ячейку — вводишь текст. Сохраняй.</div>
+      </div>
+
+      <div id="generators-editor" style="display:none">
+        <h2>Генераторы</h2>
+        <div class="gen-grid">
+          <div class="gen-card">
+            <div>Генератор чисел</div>
+            <div style="margin-top:8px">
+              min <input id="g_min" type="number" value="1" style="width:80px"> 
+              max <input id="g_max" type="number" value="100" style="width:80px">
+            </div>
+            <button class="btn" style="margin-top:8px" onclick="genNumber()">Сгенерировать</button>
+            <div class="big-out" id="out_number">—</div>
+          </div>
+
+          <div class="gen-card">
+            <div>Генератор имён</div>
+            <div style="margin-top:8px">
+              <select id="nameType"><option value="ru">Русские</option><option value="mix">Смешанные</option></select>
+            </div>
+            <button class="btn" style="margin-top:8px" onclick="genName()">Сгенерировать</button>
+            <div class="big-out" id="out_name">—</div>
+          </div>
+
+          <div class="gen-card">
+            <div>Рандомайзер городов</div>
+            <div style="margin-top:8px">
+              <select id="cityRegion"><option value="global">Мир</option><option value="eu">Европа</option><option value="asia">Азия</option><option value="ru">РФ/КZ</option></select>
+            </div>
+            <button class="btn" style="margin-top:8px" onclick="genCity()">Случайный город</button>
+            <div class="big-out" id="out_city">—</div>
+          </div>
+
+          <div class="gen-card">
+            <div>Рандомайзер стран</div>
+            <div style="margin-top:8px">
+              <select id="countryRegion"><option value="all">Все</option><option value="europe">Европа</option><option value="asia">Азия</option></select>
+            </div>
+            <button class="btn" style="margin-top:8px" onclick="genCountry()">Случайная страна</button>
+            <div class="big-out" id="out_country">—</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="calendar-editor" style="display:none">
+        <h2>Календарь (2 года)</h2>
+        <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px">
+          <button class="btn" onclick="prevMonth()">←</button>
+          <div id="calTitle" style="font-weight:700"></div>
+          <button class="btn" onclick="nextMonth()">→</button>
+          <div style="margin-left:auto" class="muted">Период: <span id="calRange"></span></div>
+        </div>
+        <div id="calendarGrid" style="overflow:auto"></div>
+        <div class="muted" style="margin-top:8px">Можно переключаться между месяцами в диапазоне текущего года и следующего.</div>
+      </div>
+
+      <div id="db-editor" style="display:none">
+        <h2 class="small">База (IndexedDB)</h2>
+        <div class="small muted" id="dbStats"></div>
+        <div style="margin-top:12px">
+          <button class="btn" onclick="compactDB()">Компрессировать</button>
+          <button class="btn" onclick="exportDB()">Экспорт в JSON</button>
+          <button class="btn" style="background:rgba(255,40,40,0.08); color:#ffb3b3" onclick="clearAll()">Очистить всё</button>
+        </div>
+        <footer class="note">База доступна только в этом браузере и на этом устройстве.</footer>
+      </div>
+
+    </div>
+  </div>
+
+<script>
+/* ========= IndexedDB wrapper ========= */
+const DB_NAME = 'pcbase_v1';
+const DB_VERSION = 1;
+let db = null;
+
+function openDB(){
+  return new Promise((res, rej) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = e => {
+      const idb = e.target.result;
+      if(!idb.objectStoreNames.contains('notes')) idb.createObjectStore('notes', { keyPath:'id' });
+      if(!idb.objectStoreNames.contains('tables')) idb.createObjectStore('tables', { keyPath:'id' });
+      if(!idb.objectStoreNames.contains('meta')) idb.createObjectStore('meta', { keyPath:'id' });
+    };
+    req.onsuccess = e => { db = e.target.result; res(db); };
+    req.onerror = e => rej(e.target.error);
+  });
+}
+function idbGetAll(storeName){
+  return new Promise((res, rej)=>{
+    const tx = db.transaction(storeName, 'readonly');
+    const store = tx.objectStore(storeName);
+    const req = store.getAll();
+    req.onsuccess = ()=> res(req.result);
+    req.onerror = ()=> rej(req.error);
+  });
+}
+function idbGet(storeName, key){
+  return new Promise((res, rej)=>{
+    const tx = db.transaction(storeName, 'readonly');
+    const store = tx.objectStore(storeName);
+    const req = store.get(key);
+    req.onsuccess = ()=> res(req.result);
+    req.onerror = ()=> rej(req.error);
+  });
+}
+function idbPut(storeName, obj){
+  return new Promise((res, rej)=>{
+    const tx = db.transaction(storeName, 'readwrite');
+    const store = tx.objectStore(storeName);
+    const req = store.put(obj);
+    req.onsuccess = ()=> res(req.result);
+    req.onerror = ()=> rej(req.error);
+  });
+}
+function idbDelete(storeName, key){
+  return new Promise((res, rej)=>{
+    const tx = db.transaction(storeName, 'readwrite');
+    const store = tx.objectStore(storeName);
+    const req = store.delete(key);
+    req.onsuccess = ()=> res();
+    req.onerror = ()=> rej(req.error);
+  });
+}
+function idbClear(storeName){
+  return new Promise((res, rej)=>{
+    const tx = db.transaction(storeName, 'readwrite');
+    const store = tx.objectStore(storeName);
+    const req = store.clear();
+    req.onsuccess = ()=> res();
+    req.onerror = ()=> rej(req.error);
+  });
+}
+
+/* ========= Utils ========= */
+function uid(prefix='id'){ return prefix + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,9); }
+function nowISO(){ return (new Date()).toISOString(); }
+function pick(a){ return a[Math.floor(Math.random()*a.length)]; }
+function escapeHtml(s){ if(s===null||s===undefined) return ''; return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;') }
+
+/* ========= Init DB & sample ========= */
+let state = { currentNoteId:null, currentTableId:null, calYear:null, calMonth:null };
+openDB().then(async ()=>{
+  await ensureSample();
+  renderNotesList();
+  renderTablesList();
+  updateDBInfo();
+  buildMiniCalendar();
+  // init calendar month to current
+  const d = new Date();
+  state.calYear = d.getFullYear(); state.calMonth = d.getMonth();
+  renderCalendar();
+}).catch(e=>alert('IndexedDB error: '+e));
+
+async function ensureSample(){
+  const notes = await idbGetAll('notes');
+  const tables = await idbGetAll('tables');
+  if(notes.length===0){
+    await idbPut('notes', { id: uid('note'), title:'Добро пожаловать в PCBase', body:'Это автономная локальная база. Здесь заметки, таблицы, генераторы, часы и календарь на 2 года.', created: nowISO(), updated: nowISO() });
+  }
+  if(tables.length===0){
+    await idbPut('tables', { id: uid('tbl'), title: 'Пример таблицы', cols:['Ключ','Значение'], rows:[ ['Параметр A','10'], ['Параметр B','42'] ], created: nowISO(), updated: nowISO() });
+  }
+}
+
+/* ========= Notes CRUD ========= */
+async function renderNotesList(){
+  const container = document.getElementById('notesContainer');
+  const q = document.getElementById('searchInput').value.trim().toLowerCase();
+  const all = await idbGetAll('notes');
+  const filtered = all.filter(n => !q || (n.title && n.title.toLowerCase().includes(q)) || (n.body && n.body.toLowerCase().includes(q)));
+  filtered.sort((a,b)=> (b.updated||b.created).localeCompare(a.updated||a.created));
+  container.innerHTML = '';
+  for(let note of filtered){
+    const el = document.createElement('div');
+    el.className='item';
+    el.onclick = ()=> openNote(note.id);
+    el.innerHTML = `<div><div class="title">${escapeHtml(note.title||'Без названия')}</div><div class="meta">${(new Date(note.updated||note.created)).toLocaleString()}</div></div>
+                    <div style="display:flex;gap:8px;align-items:center">
+                      <button title="Открыть" onclick="event.stopPropagation(); openNote('${note.id}')">О</button>
+                      <button title="Удалить" onclick="event.stopPropagation(); deleteNotePrompt('${note.id}')">✕</button>
+                    </div>`;
+    container.appendChild(el);
+  }
+  if(!state.currentNoteId && filtered.length) openNote(filtered[0].id);
+}
+
+async function createNote(){
+  const id = uid('note');
+  const obj = { id, title:'Новая заметка', body:'', created: nowISO(), updated: nowISO() };
+  await idbPut('notes', obj);
+  state.currentNoteId = id;
+  renderNotesList(); openNote(id);
+}
+
+async function openNote(id){
+  await autoSaveNote();
+  state.currentNoteId = id;
+  const note = await idbGet('notes', id);
+  if(!note) return;
+  document.getElementById('noteTitle').value = note.title;
+  document.getElementById('noteBody').value = note.body;
+}
+
+async function saveNote(){
+  const id = state.currentNoteId; if(!id) return alert('Выбери заметку.');
+  const title = document.getElementById('noteTitle').value;
+  const body = document.getElementById('noteBody').value;
+  const obj = await idbGet('notes', id);
+  obj.title = title; obj.body = body; obj.updated = nowISO();
+  await idbPut('notes', obj);
+  renderNotesList();
+}
+async function autoSaveNote(){
+  const id = state.currentNoteId; if(!id) return;
+  const title = document.getElementById('noteTitle').value;
+  const body = document.getElementById('noteBody').value;
+  const old = await idbGet('notes', id); if(!old) return;
+  if(old.title !== title || old.body !== body){ old.title = title; old.body = body; old.updated = nowISO(); await idbPut('notes', old); renderNotesList(); }
+}
+async function deleteNotePrompt(id){ if(!confirm('Удалить заметку?')) return; await idbDelete('notes', id); if(state.currentNoteId===id){ state.currentNoteId=null; document.getElementById('noteTitle').value=''; document.getElementById('noteBody').value=''; } renderNotesList(); }
+async function deleteCurrentNote(){ if(!state.currentNoteId) return alert('Ничего не выбрано'); deleteNotePrompt(state.currentNoteId); }
+
+/* ========= Tables (spreadsheet) ========= */
+async function renderTablesList(){
+  const container = document.getElementById('tablesContainer');
+  const q = document.getElementById('searchTables').value.trim().toLowerCase();
+  const all = await idbGetAll('tables');
+  const filtered = all.filter(t => !q || (t.title && t.title.toLowerCase().includes(q)));
+  filtered.sort((a,b)=> (b.updated||b.created).localeCompare(a.updated||a.created));
+  container.innerHTML = '';
+  for(let t of filtered){
+    const el = document.createElement('div');
+    el.className='item';
+    el.onclick = ()=> openTable(t.id);
+    el.innerHTML = `<div><div class="title">${escapeHtml(t.title||'Таблица')}</div><div class="meta">${(new Date(t.updated||t.created)).toLocaleString()}</div></div>
+                    <div style="display:flex;gap:8px">
+                      <button title="Открыть" onclick="event.stopPropagation(); openTable('${t.id}')">О</button>
+                      <button title="Удалить" onclick="event.stopPropagation(); deleteTablePrompt('${t.id}')">✕</button>
+                    </div>`;
+    container.appendChild(el);
+  }
+  if(!state.currentTableId && filtered.length) openTable(filtered[0].id);
+}
+
+async function createTable(){
+  const id = uid('tbl');
+  const obj = { id, title:'Новая таблица', cols:['A','B'], rows:[['','']], created: nowISO(), updated: nowISO() };
+  await idbPut('tables', obj);
+  state.currentTableId = id; renderTablesList(); openTable(id);
+}
+
+async function openTable(id){
+  await autoSaveTable();
+  state.currentTableId = id;
+  const t = await idbGet('tables', id);
+  if(!t) return;
+  document.getElementById('tableTitle').value = t.title;
+  buildSheet(t.cols, t.rows);
+}
+
+function buildSheet(cols, rows){
+  const table = document.getElementById('sheetTable'); table.innerHTML = '';
+  const thead = document.createElement('thead'); const trh = document.createElement('tr');
+  for(let i=0;i<cols.length;i++){
+    const th = document.createElement('th');
+    th.innerHTML = `<div style="display:flex;gap:6px;align-items:center">
+                      <span contenteditable="true" oninput="onEditCol(${i},this.innerText)">${escapeHtml(cols[i])}</span>
+                      <button onclick="removeCol(${i})" title="Удалить колонку">✕</button>
+                    </div>`;
+    trh.appendChild(th);
+  }
+  thead.appendChild(trh); table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+  for(let r=0;r<rows.length;r++){
+    const tr = document.createElement('tr');
+    for(let c=0;c<cols.length;c++){
+      const td = document.createElement('td');
+      const v = rows[r] && rows[r][c] !== undefined ? rows[r][c] : '';
+      td.innerHTML = `<input class="cell-input" value="${escapeHtml(String(v||''))}" onchange="onCellChange(${r},${c},this.value)" />`;
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+}
+
+async function saveTable(){
+  const id = state.currentTableId; if(!id) return alert('Выбери таблицу');
+  const title = document.getElementById('tableTitle').value;
+  const t = await idbGet('tables', id);
+  const sheet = readSheetFromDOM();
+  t.title = title; t.cols = sheet.cols; t.rows = sheet.rows; t.updated = nowISO();
+  await idbPut('tables', t); renderTablesList();
+}
+
+function readSheetFromDOM(){
+  const table = document.getElementById('sheetTable');
+  const cols = []; const rows = [];
+  const ths = table.querySelectorAll('thead th');
+  ths.forEach(th => { const txt = th.querySelector('div span') ? th.querySelector('div span').innerText : ''; cols.push(txt); });
+  const trs = table.querySelectorAll('tbody tr');
+  trs.forEach(tr=>{ const cells=[]; tr.querySelectorAll('input.cell-input').forEach(inp=>cells.push(inp.value)); rows.push(cells); });
+  return { cols, rows };
+}
+
+async function addCol(){ const id=state.currentTableId; if(!id) return alert('Выбери таблицу'); const t = await idbGet('tables', id); t.cols.push(''); for(let r=0;r<t.rows.length;r++) t.rows[r].push(''); await idbPut('tables', t); buildSheet(t.cols,t.rows); }
+async function addRow(){ const id=state.currentTableId; if(!id) return alert('Выбери таблицу'); const t = await idbGet('tables', id); const newRow = new Array(t.cols.length).fill(''); t.rows.push(newRow); await idbPut('tables', t); buildSheet(t.cols,t.rows); }
+async function removeCol(index){ const id=state.currentTableId; if(!id) return; const t = await idbGet('tables', id); t.cols.splice(index,1); for(let r=0;r<t.rows.length;r++) t.rows[r].splice(index,1); await idbPut('tables', t); buildSheet(t.cols,t.rows); }
+function onEditCol(i,val){} function onCellChange(r,c,val){}
+async function autoSaveTable(){ const id=state.currentTableId; if(!id) return; const t=await idbGet('tables', id); if(!t) return; const sheet=readSheetFromDOM(); t.cols=sheet.cols; t.rows=sheet.rows; t.updated=nowISO(); await idbPut('tables', t); renderTablesList(); }
+async function deleteTablePrompt(id){ if(!confirm('Удалить таблицу?')) return; await idbDelete('tables', id); if(state.currentTableId===id){ state.currentTableId=null; document.getElementById('tableTitle').value=''; document.getElementById('sheetTable').innerHTML=''; } renderTablesList(); }
+async function deleteCurrentTable(){ if(!state.currentTableId) return alert('Ничего не выбрано'); deleteTablePrompt(state.currentTableId); }
+
+/* ========= Generators ========= */
+const RU_NAMES = ["Алексей","Данил","Максим","Илья","Егор","Никита","София","Алина","Мила","Ева","Кирилл","Денис","Ольга","Мария","Анна"];
+const MIX_NAMES = ["Alex","Luna","Noah","Maya","Алексей","Sofia","Олег","Liam","Ирина","Mila"];
+const CITIES = {
+  global: ["Москва","Нью-Йорк","Токио","Берлин","Лондон","Париж","Астана","Минск","Киев","Сеул","Найроби","Сидней"],
+  eu: ["Берлин","Лондон","Париж","Прага","Варшава","Мадрид","Рим","Осло"],
+  asia: ["Токио","Сеул","Пекин","Шанхай","Бангкок","Дели","Астана"],
+  ru: ["Москва","Санкт-Петербург","Казань","Новосибирск","Екатеринбург","Астана","Алматы"]
+};
+const COUNTRIES = {
+  all: ["Россия","Казахстан","США","Германия","Франция","Италия","Китай","Япония","Корея","Турция","Испания"],
+  europe: ["Германия","Франция","Италия","Испания","Польша","Чехия","Нидерланды"],
+  asia: ["Казахстан","Китай","Япония","Южная Корея","Индия","Турция"]
+};
+
+function genNumber(){
+  const min = parseInt(document.getElementById('g_min').value) || 0;
+  const max = parseInt(document.getElementById('g_max').value) || 100;
+  const out = Math.floor(Math.random()*(max-min+1))+min;
+  document.getElementById('out_number').textContent = out;
+}
+function genName(){
+  const type = document.getElementById('nameType').value;
+  const arr = type==='ru' ? RU_NAMES : MIX_NAMES;
+  document.getElementById('out_name').textContent = pick(arr);
+}
+function genCity(){
+  const region = document.getElementById('cityRegion').value;
+  const arr = CITIES[region] || CITIES['global'];
+  document.getElementById('out_city').textContent = pick(arr);
+}
+function genCountry(){
+  const region = document.getElementById('countryRegion').value;
+  const arr = COUNTRIES[region] || COUNTRIES['all'];
+  document.getElementById('out_country').textContent = pick(arr);
+}
+
+/* ========= DB utilities ========= */
+async function exportDB(){
+  const notes = await idbGetAll('notes');
+  const tables = await idbGetAll('tables');
+  const data = { exportedAt: nowISO(), notes, tables };
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url;
+  a.download = 'pcbase_export_'+ (new Date()).toISOString().slice(0,19).replaceAll(':','-') + '.json';
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+}
+function importDB(){
+  const inp = document.createElement('input'); inp.type='file'; inp.accept='.json,application/json';
+  inp.onchange = async e => {
+    const file = e.target.files[0]; if(!file) return;
+    const txt = await file.text();
+    try{
+      const parsed = JSON.parse(txt);
+      if(!parsed) return alert('Плохой файл');
+      if(Array.isArray(parsed.notes)){
+        for(let n of parsed.notes){ if(!n.id) n.id = uid('note'); await idbPut('notes', n); }
+      }
+      if(Array.isArray(parsed.tables)){
+        for(let t of parsed.tables){ if(!t.id) t.id = uid('tbl'); await idbPut('tables', t); }
+      }
+      alert('Импорт завершён');
+      renderNotesList(); renderTablesList(); updateDBInfo();
+    }catch(err){ alert('Ошибка при импорте: '+err) }
+  };
+  inp.click();
+}
+async function clearAll(){
+  if(!confirm('Очистить всю базу? Это удалит ВСЕ заметки и таблицы.')) return;
+  await idbClear('notes'); await idbClear('tables');
+  state.currentNoteId=null; state.currentTableId=null;
+  document.getElementById('noteTitle').value=''; document.getElementById('noteBody').value='';
+  document.getElementById('tableTitle').value=''; document.getElementById('sheetTable').innerHTML='';
+  renderNotesList(); renderTablesList(); updateDBInfo();
+}
+async function compactDB(){
+  const notes = await idbGetAll('notes'); for(let n of notes){ n.updated = n.updated || n.created || nowISO(); await idbPut('notes', n); }
+  const tables = await idbGetAll('tables'); for(let t of tables){ t.updated = t.updated || t.created || nowISO(); await idbPut('tables', t); }
+  alert('Компрессия завершена'); updateDBInfo();
+}
+async function updateDBInfo(){
+  const ns = await idbGetAll('notes'); const ts = await idbGetAll('tables');
+  document.getElementById('dbStats').innerText = `Заметок: ${ns.length} · Таблиц: ${ts.length}`;
+  document.getElementById('dbDetails').innerText = `Последнее обновление: ${new Date().toLocaleString()}`;
+}
+
+/* ========= UI: tabs, keyboard, autosave ========= */
+function switchTab(name){
+  const tabs = ['notes','tables','generators','calendar','db'];
+  tabs.forEach(t=>{
+    document.getElementById(t+'-list') && (document.getElementById(t+'-list').style.display = 'none');
+    document.getElementById(t+'-editor') && (document.getElementById(t+'-editor').style.display = 'none');
+    document.getElementById('tab-'+t) && document.getElementById('tab-'+t).classList.remove('active');
+  });
+  document.getElementById('tab-'+name).classList.add('active');
+  if(document.getElementById(name+'-list')) document.getElementById(name+'-list').style.display='';
+  if(document.getElementById(name+'-editor')) document.getElementById(name+'-editor').style.display='';
+  if(name==='db') updateDBInfo();
+  // auto-save when switching
+  autoSaveNote(); autoSaveTable();
+}
+
+window.addEventListener('keydown', async (e)=>{
+  if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='s'){ e.preventDefault();
+    const notesVisible = document.getElementById('notes-editor').style.display !== 'none';
+    if(notesVisible){ await saveNote(); alert('Заметка сохранена'); } else { await saveTable(); alert('Таблица сохранена'); }
+  }
+});
+window.addEventListener('beforeunload', async (e)=>{ await autoSaveNote(); await autoSaveTable(); });
+
+/* ========= Clock & mini calendar ========= */
+function updateClock(){
+  const el = document.getElementById('clock');
+  const now = new Date(); const hh = String(now.getHours()).padStart(2,'0'); const mm = String(now.getMinutes()).padStart(2,'0'); const ss = String(now.getSeconds()).padStart(2,'0');
+  el.textContent = `${hh}:${mm}:${ss}`;
+}
+setInterval(updateClock, 500); updateClock();
+
+function buildMiniCalendar(){
+  const el = document.getElementById('miniCal');
+  const now = new Date();
+  const opts = { weekday:'short', month:'short', day:'numeric' };
+  el.textContent = now.toLocaleDateString(undefined, opts);
+}
+
+/* ========= Full calendar (2 years) ========= */
+const MONTHS = ["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"];
+function renderCalendar(){
+  const grid = document.getElementById('calendarGrid'); grid.innerHTML = '';
+  const year = state.calYear; const month = state.calMonth;
+  const title = document.getElementById('calTitle'); title.textContent = `${MONTHS[month]} ${year}`;
+  const start = new Date(year, month, 1).getDay(); // 0-6 (Sun-Sat) -> adjust to Mon?
+  const firstWeekday = (new Date(year, month, 1).getDay()+6)%7; // 0 = Mon
+  const days = new Date(year, month+1, 0).getDate();
+  const table = document.createElement('table'); table.style.width='100%'; table.style.borderCollapse='collapse';
+  const thead = document.createElement('thead'); const trh = document.createElement('tr');
+  ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"].forEach(d=>{ const th=document.createElement('th'); th.textContent=d; th.style.padding='6px'; th.style.background='rgba(255,255,255,0.02)'; trh.appendChild(th); });
+  thead.appendChild(trh); table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+  let row = document.createElement('tr'); let cellIndex = 0;
+  for(let i=0;i<firstWeekday;i++){ const td=document.createElement('td'); td.style.padding='8px'; td.innerHTML=''; row.appendChild(td); cellIndex++; }
+  for(let d=1; d<=days; d++){
+    if(cellIndex===7){ tbody.appendChild(row); row=document.createElement('tr'); cellIndex=0; }
+    const td = document.createElement('td'); td.style.padding='8px'; td.style.border='1px solid rgba(255,255,255,0.03)';
+    td.innerHTML = `<div style="min-height:28px">${d}</div>`;
+    // highlight today
+    const today = new Date();
+    if(today.getFullYear()===year && today.getMonth()===month && today.getDate()===d){
+      td.style.background = 'rgba(79,140,255,0.12)'; td.style.fontWeight='700';
+    }
+    row.appendChild(td); cellIndex++;
+  }
+  while(cellIndex>0 && cellIndex<7){ const td=document.createElement('td'); td.style.padding='8px'; td.innerHTML=''; row.appendChild(td); cellIndex++; }
+  tbody.appendChild(row); table.appendChild(tbody); grid.appendChild(table);
+  // range display
+  const now = new Date(); const r0 = `${now.getFullYear()}`; const r1 = `${now.getFullYear()+1}`;
+  document.getElementById('calRange').textContent = `${r0} — ${r1}`;
+}
+
+function prevMonth(){
+  // don't go below current year-month
+  const now = new Date();
+  const minYear = now.getFullYear();
+  const minMonth = now.getMonth();
+  let y = state.calYear; let m = state.calMonth - 1;
+  if(m<0){ y-=1; m=11; }
+  if(y<minYear || (y===minYear && m<minMonth)) return;
+  state.calYear=y; state.calMonth=m; renderCalendar();
+}
+function nextMonth(){
+  const now = new Date();
+  const maxYear = now.getFullYear()+1;
+  let y = state.calYear; let m = state.calMonth + 1;
+  if(m>11){ y+=1; m=0; }
+  if(y>maxYear || (y===maxYear && m>11)) return;
+  state.calYear=y; state.calMonth=m; renderCalendar();
+}
+
+/* ========= Generators list render (left pane quick access) ========= */
+function renderGeneratorsList(){
+  const cont = document.getElementById('gensContainer'); cont.innerHTML = '';
+  const items = [
+    {id:'g_numbers', title:'Генератор чисел', action:'genNumber'},
+    {id:'g_names', title:'Генератор имён', action:'genName'},
+    {id:'g_cities', title:'Рандомайзер городов', action:'genCity'},
+    {id:'g_countries', title:'Рандомайзер стран', action:'genCountry'}
+  ];
+  for(let it of items){
+    const el = document.createElement('div'); el.className='item';
+    el.innerHTML = `<div><div class="title">${it.title}</div><div class="meta">Нажми справа, чтобы открыть</div></div>
+                    <div style="display:flex;gap:8px"><button onclick="event.stopPropagation(); switchTab('generators');">${'О'}</button></div>`;
+    cont.appendChild(el);
+  }
+}
+
+/* ========= small helpers ========= */
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+
+/* ========= initial UI state ========= */
+switchTab('notes'); renderGeneratorsList();
+
+/* ========= Keyboard: quick gen via keys (optional) ========= */
+document.addEventListener('keydown', (e)=>{
+  if(e.key==='F8'){ switchTab('generators'); genNumber(); }
+});
+</script>
+
+</body>
+</html>
